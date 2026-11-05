@@ -1,6 +1,8 @@
 from django.http import JsonResponse
 from django.templatetags.static import static
 import json
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
 from .models import Product, Order, OrderItem
 
@@ -57,6 +59,7 @@ def product_list_api(request):
     })
 
 
+@api_view(['POST'])
 def register_order(request):
     order_data = json.loads(request.body.decode())
 
@@ -81,4 +84,4 @@ def register_order(request):
 
     OrderItem.objects.bulk_create(order_items)
 
-    return JsonResponse({"id": order.id, "status": "created"}, status=201)
+    return Response({"id": order.id, "status": "created"}, status=201)
