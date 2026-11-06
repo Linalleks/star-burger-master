@@ -1,7 +1,8 @@
 from django.db import IntegrityError
 from django.http import JsonResponse
 from django.templatetags.static import static
-import json
+from phonenumber_field.phonenumber import PhoneNumber
+from phonenumber_field.validators import validate_international_phonenumber
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -64,6 +65,8 @@ def product_list_api(request):
 
 
 def validate_products_items(products, errors: dict):
+    
+    valid_items = 0
 
     for idx, item in enumerate(products):
         prefix = f"products[{idx}]"
@@ -87,17 +90,47 @@ def validate_products_items(products, errors: dict):
         elif quantity < 1:
             errors[f"{prefix}.quantity"] = "Должно быть ≥ 1"
 
-    return
+        if f"{prefix}.product" not in errors and f"{prefix}.quantity" not in errors:
+            valid_items += 1
+
+    return valid_items == len(products)
+
+
+def validate_products_exist(products, errors: dict):
+    products_ids = [item["product"] for item in products]
+    products_map = Product.objects.in_bulk(products_ids)
+    products_ok = True
+
+    for id in products_ids:
+        if id not in products_map:
+            errors[f"products[product={id}]"] = f"Недопустимый первичный ключ {id}"
+            products_ok = False
+
+    if not products_ok:
+        return products_ok
+
+    return products_map
+
+
+def validate_required_str(value, errors: dict, key: str) -> None:
+    if value is MISSING:
+        errors[key] = "Обязательное поле"
+    elif value is None:
+        errors[key] = "Это поле не может быть пустым"
+    elif not isinstance(value, str):
+        errors[key] = f"Ожидалась строка, но был получен {type(value).__name__}"
+    elif not value.strip():
+        errors[key] = "Это поле не может быть пустым или состоять из одних пробелов"
 
 
 @api_view(['POST'])
 def register_order(request):
     order_data = request.data
 
-    firstname = order_data.get("firstname")
-    lastname = order_data.get("lastname")
-    phonenumber = order_data.get("phonenumber")
-    address = order_data.get("address")
+    firstname = order_data.get("firstname", MISSING)
+    lastname = order_data.get("lastname", MISSING)
+    phonenumber = order_data.get("phonenumber", MISSING)
+    address = order_data.get("address", MISSING)
     products = order_data.get("products", MISSING)
 
     errors = {}
@@ -106,45 +139,44 @@ def register_order(request):
     elif products is None:
         errors["products"] = "Это поле не может быть пустым"
     elif not isinstance(products, list):
-        errors["products"] = f"Ожидался list со значениями, но был получен {type(products).__name__}"
+        errors["products"] = ("Ожидался list со значениями, "
+                              f"но был получен {type(products).__name__}")
     elif len(products) == 0:
         errors["products"] = "Этот список не может быть пустым"
-    else:
-        validate_products_items(products, errors)
+    elif validate_products_items(products, errors):
+        products_map = validate_products_exist(products, errors)
 
-    if not firstname:
-        errors["firstname"] = "Обязательное поле"
-    if not lastname:
-        errors["lastname"] = "Обязательное поле"
-    if not phonenumber:
-        errors["phonenumber"] = "Обязательное поле"
-    if not address:
-        errors["address"] = "Обязательное поле"
+    validate_required_str(firstname, errors, "firstname")
+    validate_required_str(lastname, errors, "lastname")
+    validate_required_str(address, errors, "address")
+    validate_required_str(phonenumber, errors, "phonenumber")
+    if "phonenumber" not in errors:
+        try:
+            phone = PhoneNumber.from_string(phonenumber, region="RU")
+        except Exception:
+            errors["phonenumber"] = "Введен некорректный номер телефона"
+        if not phone.is_valid():
+            errors["phonenumber"] = "Введен некорректный номер телефона"
 
     if errors:
         return Response({"errors": errors}, status=400)
 
     try:
         order = Order.objects.create(
-            firstname=order_data.get('firstname'),
-            lastname=order_data.get('lastname'),
-            phonenumber=order_data.get('phonenumber'),
-            address=order_data.get('address'),
+            firstname=firstname.strip(),
+            lastname=lastname.strip(),
+            phonenumber=phonenumber.strip(),
+            address=address.strip(),
         )
 
-        order_items = []
-        for item in products:
-            product_id = item['product']
-            quantity = item['quantity']
-
-            product = Product.objects.get(pk=product_id)
-            order_items.append(OrderItem(
+        OrderItem.objects.bulk_create([
+            OrderItem(
                 order=order,
-                product=product,
-                quantity=quantity,
-            ))
-
-        OrderItem.objects.bulk_create(order_items)
+                product=products_map[item["product"]],
+                quantity=item["quantity"],
+            )
+            for item in products
+        ])
 
     except Product.DoesNotExist as e:
         return Response({"error": f"Товар не найден: {e}"}, status=400)
