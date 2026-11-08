@@ -1,15 +1,11 @@
-from django.db import IntegrityError
 from django.http import JsonResponse
 from django.templatetags.static import static
-from phonenumber_field.phonenumber import PhoneNumber
-from phonenumber_field.validators import validate_international_phonenumber
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.serializers import ModelSerializer
+from phonenumber_field.serializerfields import PhoneNumberField
 
 from .models import Product, Order, OrderItem
-
-
-MISSING = object()
 
 
 def banners_list_api(request):
@@ -64,125 +60,46 @@ def product_list_api(request):
     })
 
 
-def validate_products_items(products, errors: dict):
-    
-    valid_items = 0
-
-    for idx, item in enumerate(products):
-        prefix = f"products[{idx}]"
-
-        if not isinstance(item, dict):
-            errors[prefix] = "Элемент должен быть объектом"
-            continue
-
-        product_id = item.get("product", MISSING)
-        quantity = item.get("quantity", MISSING)
-
-        if product_id is MISSING:
-            errors[f"{prefix}.product"] = "Обязательное поле"
-        elif not isinstance(product_id, int):
-            errors[f"{prefix}.product"] = "Должно быть целым числом"
-
-        if quantity is MISSING:
-            errors[f"{prefix}.quantity"] = "Обязательное поле"
-        elif not isinstance(quantity, int):
-            errors[f"{prefix}.quantity"] = "Должно быть целым числом"
-        elif quantity < 1:
-            errors[f"{prefix}.quantity"] = "Должно быть ≥ 1"
-
-        if f"{prefix}.product" not in errors and f"{prefix}.quantity" not in errors:
-            valid_items += 1
-
-    return valid_items == len(products)
+class OrderItemSerializer(ModelSerializer):
+    class Meta:
+        model = OrderItem
+        fields = ["product", "quantity"]
 
 
-def validate_products_exist(products, errors: dict):
-    products_ids = [item["product"] for item in products]
-    products_map = Product.objects.in_bulk(products_ids)
-    products_ok = True
+class OrderSerializer(ModelSerializer):
+    phonenumber = PhoneNumberField(region="RU")
+    products = OrderItemSerializer(
+        many=True,
+        allow_empty=False,
+    )
 
-    for id in products_ids:
-        if id not in products_map:
-            errors[f"products[product={id}]"] = f"Недопустимый первичный ключ {id}"
-            products_ok = False
-
-    if not products_ok:
-        return products_ok
-
-    return products_map
-
-
-def validate_required_str(value, errors: dict, key: str) -> None:
-    if value is MISSING:
-        errors[key] = "Обязательное поле"
-    elif value is None:
-        errors[key] = "Это поле не может быть пустым"
-    elif not isinstance(value, str):
-        errors[key] = f"Ожидалась строка, но был получен {type(value).__name__}"
-    elif not value.strip():
-        errors[key] = "Это поле не может быть пустым или состоять из одних пробелов"
+    class Meta:
+        model = Order
+        fields = ["firstname", "lastname", "phonenumber", "address", "products"]
 
 
 @api_view(['POST'])
 def register_order(request):
-    order_data = request.data
+    serializer = OrderSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
 
-    firstname = order_data.get("firstname", MISSING)
-    lastname = order_data.get("lastname", MISSING)
-    phonenumber = order_data.get("phonenumber", MISSING)
-    address = order_data.get("address", MISSING)
-    products = order_data.get("products", MISSING)
+    order_fields = serializer.validated_data
 
-    errors = {}
-    if products is MISSING:
-        errors["products"] = "Обязательное поле"
-    elif products is None:
-        errors["products"] = "Это поле не может быть пустым"
-    elif not isinstance(products, list):
-        errors["products"] = ("Ожидался list со значениями, "
-                              f"но был получен {type(products).__name__}")
-    elif len(products) == 0:
-        errors["products"] = "Этот список не может быть пустым"
-    elif validate_products_items(products, errors):
-        products_map = validate_products_exist(products, errors)
+    order = Order.objects.create(
+        firstname=order_fields["firstname"],
+        lastname=order_fields["lastname"],
+        phonenumber=order_fields["phonenumber"],
+        address=order_fields["address"],
+    )
 
-    validate_required_str(firstname, errors, "firstname")
-    validate_required_str(lastname, errors, "lastname")
-    validate_required_str(address, errors, "address")
-    validate_required_str(phonenumber, errors, "phonenumber")
-    if "phonenumber" not in errors:
-        try:
-            phone = PhoneNumber.from_string(phonenumber, region="RU")
-        except Exception:
-            errors["phonenumber"] = "Введен некорректный номер телефона"
-        if not phone.is_valid():
-            errors["phonenumber"] = "Введен некорректный номер телефона"
-
-    if errors:
-        return Response({"errors": errors}, status=400)
-
-    try:
-        order = Order.objects.create(
-            firstname=firstname.strip(),
-            lastname=lastname.strip(),
-            phonenumber=phonenumber.strip(),
-            address=address.strip(),
-        )
-
-        OrderItem.objects.bulk_create([
-            OrderItem(
-                order=order,
-                product=products_map[item["product"]],
-                quantity=item["quantity"],
-            )
-            for item in products
-        ])
-
-    except Product.DoesNotExist as e:
-        return Response({"error": f"Товар не найден: {e}"}, status=400)
-    except ValueError as e:
-        return Response({"error": str(e)}, status=400)
-    except IntegrityError:
-        return Response({"error": "Конфликт данных"}, status=409)
+    products_fields = order_fields['products']
+    order_items = [
+        OrderItem(
+            order=order,
+            product=item["product"],
+            quantity=item["quantity"]
+            ) for item in products_fields
+        ]
+    OrderItem.objects.bulk_create(order_items)
 
     return Response({"id": order.id, "status": "created"}, status=201)
