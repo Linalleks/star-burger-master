@@ -2,10 +2,9 @@ from django.http import JsonResponse
 from django.templatetags.static import static
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework.serializers import ModelSerializer
-from phonenumber_field.serializerfields import PhoneNumberField
 
 from .models import Product, Order, OrderItem
+from foodcartapp.serializers import OrderSerializer
 
 
 def banners_list_api(request):
@@ -60,46 +59,11 @@ def product_list_api(request):
     })
 
 
-class OrderItemSerializer(ModelSerializer):
-    class Meta:
-        model = OrderItem
-        fields = ["product", "quantity"]
-
-
-class OrderSerializer(ModelSerializer):
-    phonenumber = PhoneNumberField(region="RU")
-    products = OrderItemSerializer(
-        many=True,
-        allow_empty=False,
-    )
-
-    class Meta:
-        model = Order
-        fields = ["firstname", "lastname", "phonenumber", "address", "products"]
-
-
 @api_view(['POST'])
 def register_order(request):
     serializer = OrderSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    order_fields = serializer.validated_data
+    serializer.save()
 
-    order = Order.objects.create(
-        firstname=order_fields["firstname"],
-        lastname=order_fields["lastname"],
-        phonenumber=order_fields["phonenumber"],
-        address=order_fields["address"],
-    )
-
-    products_fields = order_fields['products']
-    order_items = [
-        OrderItem(
-            order=order,
-            product=item["product"],
-            quantity=item["quantity"]
-            ) for item in products_fields
-        ]
-    OrderItem.objects.bulk_create(order_items)
-
-    return Response({"id": order.id, "status": "created"}, status=201)
+    return Response(serializer.data, status=201)
