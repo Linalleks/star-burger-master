@@ -27,11 +27,14 @@ class OrderItemInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         "id",
+        "status",
         "firstname",
         "lastname",
         "phonenumber",
         "address",
     )
+    list_filter = ("status",)
+    list_editable = ("status",)
     search_fields = ("phonenumber",)
     readonly_fields = ("id",)
     ordering = ["id"]

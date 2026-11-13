@@ -134,8 +134,27 @@ class OrderQuerySet(models.QuerySet):
             )
         )
 
+    def active(self):
+        return self.exclude(status__in=Order.FINAL_STATUSES)
+
 
 class Order(models.Model):
+    class Status(models.TextChoices):
+        NEW = "new", "Необработанный"
+        PREPARING = "preparing", "В сборке"
+        DELIVERING = "delivering", "В доставке"
+        DONE = "done", "Выполнен"
+        CANCELLED = "cancelled", "Отменён"
+
+    FINAL_STATUSES = (Status.DONE, Status.CANCELLED)
+
+    status = models.CharField(
+        'статус',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True
+    )
     firstname = models.CharField(
         'имя',
         max_length=50
