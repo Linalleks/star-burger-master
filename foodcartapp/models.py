@@ -147,6 +147,12 @@ class Order(models.Model):
         DONE = "done", "Выполнен"
         CANCELLED = "cancelled", "Отменён"
 
+    class PaymentMethod(models.TextChoices):
+        UNKNOWN = "", "Не выбрано"
+        CASH = "cash", "Наличными"
+        CARD_ON_DELIVERY = "card_on_delivery", "Картой при получении"
+        CARD_ONLINE = "card_online", "Картой онлайн"
+
     FINAL_STATUSES = (Status.DONE, Status.CANCELLED)
 
     status = models.CharField(
@@ -155,6 +161,13 @@ class Order(models.Model):
         choices=Status.choices,
         default=Status.NEW,
         db_index=True
+    )
+    payment_method = models.CharField(
+        'способ оплаты',
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.UNKNOWN,
+        db_index=True,
     )
     firstname = models.CharField(
         'имя',
