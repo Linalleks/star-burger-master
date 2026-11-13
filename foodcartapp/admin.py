@@ -32,6 +32,7 @@ class OrderAdmin(admin.ModelAdmin):
         "lastname",
         "phonenumber",
         "address",
+        "comment",
     )
     list_filter = ("status",)
     list_editable = ("status",)
