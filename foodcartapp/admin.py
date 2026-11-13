@@ -33,8 +33,11 @@ class OrderAdmin(admin.ModelAdmin):
         "phonenumber",
         "address",
         "comment",
+        "created_at",
+        "called_at",
+        "delivered_at"
     )
-    list_filter = ("status",)
+    list_filter = ("status", "created_at",)
     list_editable = ("status",)
     search_fields = ("phonenumber",)
     readonly_fields = ("id",)
