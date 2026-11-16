@@ -94,6 +94,23 @@ def view_restaurants(request):
 
 @user_passes_test(is_manager, login_url='restaurateur:login')
 def view_orders(request):
+    orders = (
+        Order.objects
+        .with_total_price()
+        .active()
+        .select_related("restaurant")
+        .prefetch_related("order_items")
+        .order_by(("restaurant"))
+    )
+
+    for order in orders:
+        if order.restaurant:
+            order.available_restaurants = []
+        else:
+            product_ids = [item.product_id for item in order.order_items.all()]
+            order.available_restaurants = list(
+                Restaurant.objects.with_products(product_ids)
+            )
     return render(request, template_name='order_items.html', context={
-        "orders": Order.objects.active().with_total_price()
+        "orders": orders,
     })

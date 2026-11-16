@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.shortcuts import reverse, redirect
 from django.templatetags.static import static
@@ -17,6 +18,21 @@ class RestaurantMenuItemInline(admin.TabularInline):
     extra = 0
 
 
+class OrderAdminForm(forms.ModelForm):
+    class Meta:
+        model = Order
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            product_ids = self.instance.order_items.values_list("product_id", flat=True)
+            if product_ids:
+                self.fields["restaurant"].queryset = (
+                    Restaurant.objects.with_products(product_ids)
+                )
+
+
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 1
@@ -25,18 +41,20 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    form = OrderAdminForm
     list_display = (
         "id",
         "status",
         "payment_method",
+        "restaurant",
         "firstname",
+        "comment",
         "lastname",
         "phonenumber",
         "address",
-        "comment",
         "created_at",
         "called_at",
-        "delivered_at"
+        "delivered_at",
     )
     list_filter = ("status", "created_at", "payment_method",)
     list_editable = ("status",)
@@ -46,6 +64,20 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [
         OrderItemInline
     ]
+    fieldsets = (
+        (None, {
+            "fields": ("id",),
+        }),
+        ("Данные клиента", {
+            "fields": ("firstname", "lastname", "phonenumber", "address"),
+        }),
+        ("Заказ", {
+            "fields": ("status", "restaurant", "payment_method", "comment"),
+        }),
+        ("Даты", {
+            "fields": ("created_at", "called_at", "delivered_at"),
+        }),
+    )
 
     def response_change(self, request, obj):
         next_url = request.GET.get("next")

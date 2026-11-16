@@ -2,7 +2,23 @@ from django.db import models
 from django.utils import timezone
 from django.core.validators import MinValueValidator
 from phonenumber_field.modelfields import PhoneNumberField
-from django.db.models import Sum, F, DecimalField
+from django.db.models import Count, Sum, F, DecimalField
+
+
+class RestaurantQuerySet(models.QuerySet):
+    def with_products(self, product_ids):
+        product_ids = list(product_ids)
+        if not product_ids:
+            return self.none()
+        return (
+            self
+            .filter(
+                menu_items__product_id__in=product_ids,
+                menu_items__availability=True,
+            )
+            .annotate(matched=Count("menu_items__product_id", distinct=True))
+            .filter(matched=len(product_ids))
+        )
 
 
 class Restaurant(models.Model):
@@ -20,6 +36,8 @@ class Restaurant(models.Model):
         max_length=50,
         blank=True,
     )
+
+    objects = RestaurantQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'ресторан'
@@ -202,6 +220,14 @@ class Order(models.Model):
     )
     delivered_at = models.DateTimeField(
         "время доставки",
+        null=True,
+        blank=True,
+    )
+    restaurant = models.ForeignKey(
+        Restaurant,
+        verbose_name="ресторан",
+        related_name="orders",
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
     )
