@@ -45,6 +45,11 @@
                 {% for restaurant in order.available_restaurants %}
                   <li>
                     {{ restaurant.name }}
+                    {% if restaurant.dist is not None %}
+                       – {{ restaurant.dist }} км.
+                    {% else %}
+                       – ошибка определения координат
+                    {% endif %}
                   </li>
                 {% endfor %}
               </ul>
